@@ -5,3 +5,7 @@ builder = "NIXPACKS"
 startCommand = "python deriv_alert_bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+
+[env]
+DERIV_API_TOKEN = "zqDmsCsMVUeM1uY"
+TELEGRAM_BOT_TOKEN = "8586871848:AAHzzsUAkqEwyjA49JUKDGinjsR4E-_cZB0"
