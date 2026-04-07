@@ -1,1 +1,0 @@
-worker: python deriv_alert_bot.py
