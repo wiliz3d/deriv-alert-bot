@@ -207,7 +207,8 @@ async def cmd_listalerts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not user_alerts:
         await update.message.reply_text("📭 No active alerts.")
         return
-    msg = "\n".join([f"🎯 `{aid}` - {a['symbol']} @ {a['price']}" for aid, a in user_alerts.items()])
+    # Added backticks around aid and symbol to handle underscores safely
+    msg = "\n".join([f"🎯 `{aid}` - `{a['symbol']}` @ `{a['price']}`" for aid, a in user_alerts.items()])
     await update.message.reply_text(f"*Active Alerts:*\n{msg}", parse_mode="Markdown")
 
 async def cmd_removealert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
