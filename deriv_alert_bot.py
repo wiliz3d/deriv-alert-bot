@@ -502,13 +502,13 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("❌ TELEGRAM_BOT_TOKEN not set. Add it to your .env file.")
 
-    # Build the bot application
+    # Build the application first
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Assign the async startup function
+    # Assign the async startup function separately
     app.post_init = on_startup
 
-    # ── Command handlers ─────────────────────────
+    # Add handlers
     app.add_handler(CommandHandler("start",        cmd_start))
     app.add_handler(CommandHandler("help",         cmd_start))
     app.add_handler(CommandHandler("addalert",     cmd_addalert))
@@ -517,55 +517,14 @@ def main():
     app.add_handler(CommandHandler("symbols",      cmd_symbols))
     app.add_handler(CommandHandler("search",       cmd_search))
 
-    # Respond to hi/hello/hey with help menu
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("(?i)^(hi|hello|hey)$"),
         cmd_greeting
     ))
 
     logger.info("🚀 Bot starting...")
-
-    # Start polling (this is fully async in PTB v20+)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-# def main():
-#     if not TELEGRAM_BOT_TOKEN:
-#         raise ValueError("❌ TELEGRAM_BOT_TOKEN not set. Add it to your .env file.")
-
-#     app = (
-#         Application.builder()
-#         .token(TELEGRAM_BOT_TOKEN)
-#         .post_init(on_startup)
-#         .build()
-#     )
-
-#     app.add_handler(CommandHandler("start",        cmd_start))
-#     app.add_handler(CommandHandler("help",         cmd_start))
-#     app.add_handler(CommandHandler("addalert",     cmd_addalert))
-#     app.add_handler(CommandHandler("listalerts",   cmd_listalerts))
-#     app.add_handler(CommandHandler("removealert",  cmd_removealert))
-#     app.add_handler(CommandHandler("symbols",      cmd_symbols))
-#     app.add_handler(CommandHandler("search",       cmd_search))
-
-#     # Responds to hi, hello, hey with the help menu
-#     app.add_handler(MessageHandler(
-#         filters.TEXT & filters.Regex("(?i)^(hi|hello|hey)$"),
-#         cmd_greeting
-#     ))
-
-#     logger.info("🚀 Bot starting...")
-#     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-# if __name__ == "__main__":
-#     main()
