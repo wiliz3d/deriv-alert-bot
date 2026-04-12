@@ -1,4 +1,4 @@
-# ── LOAD .env FILE ─────────────────────────────────────────────
+# ── LOAD .env FILE (local testing only) ───────────────────────
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -25,21 +25,25 @@ DERIV_WS_URL       = f"wss://ws.derivws.com/websockets/v3?app_id={DERIV_APP_ID}"
 
 ALERTS_FILE = "alerts.json"
 USERS_FILE  = "users.json"
-ADMIN_IDS = [2068321429, 6190585406]
+ADMIN_IDS   = [2068321429, 6190585406]  # ← your admin Telegram IDs
 
 # 💰 BTC PAYMENT CONFIG
 BTC_ADDRESS = "bc1qdwf7va0xpkkutudgryd3tgmfscf8pmc7qn6v0n"
 BTC_AMOUNT  = "BTC $20"
 
 # ── LOGGING ──────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # ── GLOBAL STATE ─────────────────────────────────────────────────
-symbol_cache = {}
-alerts = {}
-users = {}
-subscribed_symbols = set()
+symbol_cache: dict      = {}
+alerts: dict            = {}
+users: dict             = {}
+subscribed_symbols: set = set()
+
 
 # ════════════════════════════════════════════════════════════════
 # 💰 USER PAYMENT SYSTEM
@@ -48,7 +52,8 @@ subscribed_symbols = set()
 def load_users():
     global users
     if os.path.exists(USERS_FILE):
-        users = json.load(open(USERS_FILE))
+        with open(USERS_FILE, "r") as f:
+            users = json.load(f)
     else:
         users = {}
 
@@ -56,41 +61,37 @@ def save_users():
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
 
-def has_access(user_id: str):
+def has_access(user_id: str) -> bool:
     return users.get(user_id, {}).get("paid", False)
 
 def grant_access(user_id: str):
     users[user_id] = {"paid": True}
     save_users()
 
+
 # ════════════════════════════════════════════════════════════════
-# 💳 SHOW PAYMENT INFO
+# 💳 PAYMENT PROMPT
 # ════════════════════════════════════════════════════════════════
 
 async def show_payment(update: Update):
     chat_id = str(update.effective_chat.id)
 
-    keyboard = [
-        [InlineKeyboardButton("💸 I HAVE PAID (BTC)", callback_data=f"paid_{chat_id}")]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("💸 I HAVE PAID (BTC)", callback_data=f"paid_{chat_id}")
+    ]]
 
     msg = (
         "🔒 *PREMIUM ACCESS REQUIRED*\n\n"
         "🚀 Get real-time trading alerts instantly\n\n"
-
         "💰 *PAY WITH BITCOIN (BTC)*\n\n"
-
         f"🪙 *Amount:*\n`{BTC_AMOUNT}`\n\n"
         f"📥 *Wallet Address:*\n`{BTC_ADDRESS}`\n\n"
-
         "⚠️ *IMPORTANT:*\n"
         "• Send *ONLY BTC* to this address\n"
         "• Sending any other coin/network = *LOSS OF FUNDS* ❌\n"
         "• Send *exact amount* shown above\n"
         "• Wait for blockchain confirmation ⏳\n\n"
-
         f"🆔 *Your User ID:*\n`{chat_id}`\n\n"
-
         "👇 After payment, click the button below"
     )
 
@@ -100,119 +101,276 @@ async def show_payment(update: Update):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+
 # ════════════════════════════════════════════════════════════════
-# 🔐 ACCESS CONTROL WRAPPER
+# 🔐 ACCESS CONTROL DECORATOR
 # ════════════════════════════════════════════════════════════════
 
 def paid_only(func):
     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_chat.id)
-
         if not has_access(user_id):
             await show_payment(update)
             return
-
         return await func(update, ctx)
-
     return wrapper
 
+
 # ════════════════════════════════════════════════════════════════
-# ⚡ DERIV FUNCTIONS (UNCHANGED)
+# ⚡ DERIV — SYMBOLS
 # ════════════════════════════════════════════════════════════════
 
 async def authorize(ws):
     if not DERIV_API_TOKEN:
         return
     await ws.send(json.dumps({"authorize": DERIV_API_TOKEN}))
-    await ws.recv()
+    resp = json.loads(await ws.recv())
+    if "error" in resp:
+        logger.error(f"Auth error: {resp['error']['message']}")
+    else:
+        logger.info("✅ Deriv authorized")
 
 async def fetch_active_symbols():
     global symbol_cache
-    async with websockets.connect(DERIV_WS_URL) as ws:
-        await authorize(ws)
-        await ws.send(json.dumps({"active_symbols": "brief"}))
-        msg = json.loads(await ws.recv())
+    logger.info("Fetching symbols from Deriv...")
+    try:
+        async with websockets.connect(DERIV_WS_URL) as ws:
+            await authorize(ws)
+            await ws.send(json.dumps({
+                "active_symbols": "brief",
+                "product_type": "basic"
+            }))
+            msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
+            if "error" in msg:
+                logger.error(f"Symbol fetch error: {msg['error']['message']}")
+                return
+            for s in msg.get("active_symbols", []):
+                symbol_cache[s["symbol"]] = {
+                    "display_name": s.get("display_name", s["symbol"]),
+                    "market":       s.get("market_display_name", "Other"),
+                }
+            logger.info(f"✅ Loaded {len(symbol_cache)} symbols")
+    except Exception as e:
+        logger.error(f"fetch_active_symbols failed: {e}")
 
-        for s in msg.get("active_symbols", []):
-            symbol_cache[s["symbol"]] = s.get("display_name", s["symbol"])
 
 # ════════════════════════════════════════════════════════════════
-# 🔔 ALERT SYSTEM (UNCHANGED)
+# 🔔 ALERT SYSTEM — FILE I/O
 # ════════════════════════════════════════════════════════════════
 
-def load_alerts():
+def load_alerts() -> dict:
     if os.path.exists(ALERTS_FILE):
-        return json.load(open(ALERTS_FILE))
+        with open(ALERTS_FILE, "r") as f:
+            return json.load(f)
     return {}
 
 def save_alerts():
-    json.dump(alerts, open(ALERTS_FILE, "w"), indent=2)
+    with open(ALERTS_FILE, "w") as f:
+        json.dump(alerts, f, indent=2)
 
-async def check_alerts(symbol, price, app):
+
+# ════════════════════════════════════════════════════════════════
+# 👁️ PRICE WATCHER
+# ════════════════════════════════════════════════════════════════
+
+async def watch_symbol(symbol: str, app: Application):
+    logger.info(f"[{symbol}] Watcher started")
+    while True:
+        try:
+            async with websockets.connect(DERIV_WS_URL, ping_interval=30) as ws:
+                await authorize(ws)
+                await ws.send(json.dumps({"ticks": symbol, "subscribe": 1}))
+                logger.info(f"[{symbol}] Subscribed to ticks")
+                async for raw in ws:
+                    msg = json.loads(raw)
+                    if "error" in msg:
+                        logger.error(f"[{symbol}] {msg['error']['message']}")
+                        break
+                    if msg.get("msg_type") == "tick":
+                        current_price = msg["tick"]["quote"]
+                        await check_alerts(symbol, current_price, app)
+                        still_needed = any(
+                            a["symbol"] == symbol and not a["triggered"]
+                            for a in alerts.values()
+                        )
+                        if not still_needed:
+                            logger.info(f"[{symbol}] No alerts left — stopping watcher")
+                            subscribed_symbols.discard(symbol)
+                            return
+        except Exception as e:
+            logger.error(f"[{symbol}] Connection error: {e} — reconnecting in 5s...")
+        await asyncio.sleep(5)
+
+async def check_alerts(symbol: str, current_price: float, app: Application):
     for aid, a in alerts.items():
-        if a["symbol"] == symbol and not a["triggered"]:
-            if price >= a["price"]:
-                a["triggered"] = True
+        if a["symbol"] != symbol or a["triggered"]:
+            continue
+        target     = a["price"]
+        last_price = a.get("last_price")
+        touched    = abs(current_price - target) / target <= 0.0001
+        crossed    = (
+            last_price is not None and
+            ((last_price < target <= current_price) or
+             (last_price > target >= current_price))
+        )
+        if touched or crossed:
+            a["triggered"] = True
+            display = a.get("display_name", symbol)
+            try:
                 await app.bot.send_message(
                     chat_id=int(a["chat_id"]),
-                    text=f"🔔 Alert hit {symbol} @ {price}"
+                    text=(
+                        f"🔔 *PRICE ALERT TRIGGERED!*\n\n"
+                        f"📊 *Symbol:* `{symbol}` ({display})\n"
+                        f"🎯 *Your Target:* `{target}`\n"
+                        f"💰 *Current Price:* `{current_price}`\n\n"
+                        f"🆔 Alert ID: `{aid}`"
+                    ),
+                    parse_mode="Markdown"
                 )
+            except Exception as e:
+                logger.error(f"Failed to send alert {aid}: {e}")
+        else:
+            a["last_price"] = current_price
     save_alerts()
 
+
 # ════════════════════════════════════════════════════════════════
-# 🤖 COMMANDS (ONLY WRAPPED — LOGIC SAME)
+# 🤖 COMMANDS
 # ════════════════════════════════════════════════════════════════
 
-HELP_TEXT = "Use /addalert, /listalerts etc"
+HELP_TEXT = (
+    "👋 *Welcome to Deriv Alert Bot!*\n\n"
+    "➤ `/addalert SYMBOL PRICE` - Set a price alert\n"
+    "➤ `/listalerts` - View your active alerts\n"
+    "➤ `/removealert ID` - Delete an alert\n"
+    "➤ `/symbols` - Browse available pairs\n"
+    "➤ `/search KEYWORD` - Search pairs"
+)
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_access(str(update.effective_chat.id)):
         await show_payment(update)
         return
-    await update.message.reply_text(HELP_TEXT)
+    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
 
 @paid_only
 async def cmd_addalert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    symbol = ctx.args[0].upper()
-    price = float(ctx.args[1])
+    if not ctx.args or len(ctx.args) != 2:
+        await update.message.reply_text("Usage: `/addalert SYMBOL PRICE`", parse_mode="Markdown")
+        return
 
-    aid = str(uuid.uuid4())[:6]
+    symbol = ctx.args[0].upper()
+    if symbol_cache and symbol not in symbol_cache:
+        await update.message.reply_text(f"❌ Symbol `{symbol}` not found. Use /search to find valid symbols.", parse_mode="Markdown")
+        return
+
+    try:
+        price = float(ctx.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid price.", parse_mode="Markdown")
+        return
+
+    aid = str(uuid.uuid4())[:6].upper()
     alerts[aid] = {
-        "symbol": symbol,
-        "price": price,
-        "chat_id": str(update.effective_chat.id),
-        "triggered": False
+        "symbol":       symbol,
+        "display_name": symbol_cache.get(symbol, {}).get("display_name", symbol),
+        "price":        price,
+        "chat_id":      str(update.effective_chat.id),
+        "triggered":    False,
+        "last_price":   None
     }
     save_alerts()
 
-    await update.message.reply_text(f"✅ Alert set {aid}")
+    if symbol not in subscribed_symbols:
+        subscribed_symbols.add(symbol)
+        asyncio.create_task(watch_symbol(symbol, ctx.application))
+
+    await update.message.reply_text(
+        f"✅ Alert set!\n🆔 ID: `{aid}`\n📊 `{symbol}` @ `{price}`",
+        parse_mode="Markdown"
+    )
 
 @paid_only
 async def cmd_listalerts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(str(alerts))
+    chat_id = str(update.effective_chat.id)
+    user_alerts = {
+        aid: a for aid, a in alerts.items()
+        if a["chat_id"] == chat_id and not a["triggered"]
+    }
+    if not user_alerts:
+        await update.message.reply_text("📭 No active alerts.")
+        return
+    lines = [f"🎯 `{aid}` - `{a['symbol']}` @ `{a['price']}`" for aid, a in user_alerts.items()]
+    await update.message.reply_text(
+        "*Your Active Alerts:*\n" + "\n".join(lines),
+        parse_mode="Markdown"
+    )
 
 @paid_only
 async def cmd_removealert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    aid = ctx.args[0]
-    alerts.pop(aid, None)
-    save_alerts()
-    await update.message.reply_text("Removed")
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/removealert ID`", parse_mode="Markdown")
+        return
+    aid = ctx.args[0].upper()
+    if aid in alerts:
+        del alerts[aid]
+        save_alerts()
+        await update.message.reply_text(f"🗑️ Alert `{aid}` removed.", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(f"❌ Alert `{aid}` not found.", parse_mode="Markdown")
+
+@paid_only
+async def cmd_symbols(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not symbol_cache:
+        await update.message.reply_text("⏳ Symbols still loading, try again in a moment.")
+        return
+    lines = [
+        f"`{s}` - {info['display_name']}"
+        for s, info in list(symbol_cache.items())[:90]
+    ]
+    await update.message.reply_text(
+        "*Available Symbols (Top 90):*\n" + "\n".join(lines),
+        parse_mode="Markdown"
+    )
+
+@paid_only
+async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/search KEYWORD`", parse_mode="Markdown")
+        return
+    kw = ctx.args[0].lower()
+    results = [
+        f"`{s}` - {info['display_name']}"
+        for s, info in symbol_cache.items()
+        if kw in s.lower() or kw in info["display_name"].lower()
+    ][:40]
+
+    if results:
+        await update.message.reply_text(
+            "*Search Results:*\n" + "\n".join(results),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text("❌ No results found.")
+
 
 # ════════════════════════════════════════════════════════════════
-# 🔘 BUTTON SYSTEM (APPROVAL)
+# 🔘 CALLBACK — PAYMENT APPROVAL
 # ════════════════════════════════════════════════════════════════
 
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
+    query   = update.callback_query
+    data    = query.data
     user_id = str(query.from_user.id)
 
     if data.startswith("paid_"):
         await query.answer()
+        target_user = data.split("_")[1]
 
         keyboard = [[
-            InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}"),
-            InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")
+            InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{target_user}"),
+            InlineKeyboardButton("❌ REJECT",  callback_data=f"reject_{target_user}")
         ]]
 
         for admin_id in ADMIN_IDS:
@@ -220,61 +378,78 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 chat_id=admin_id,
                 text=(
                     "🧾 *NEW BTC PAYMENT REQUEST*\n\n"
-                    f"👤 User ID: `{user_id}`\n"
+                    f"👤 User ID: `{target_user}`\n"
                     f"💰 Amount: {BTC_AMOUNT}\n\n"
-                    "Check wallet → then approve 👇"
+                    "Check wallet → then approve or reject 👇"
                 ),
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-        await query.edit_message_text("⏳ Waiting approval...")
+        await query.edit_message_text("⏳ Payment submitted — waiting for admin approval...")
 
     elif data.startswith("approve_"):
         uid = data.split("_")[1]
         grant_access(uid)
-
-        await ctx.bot.send_message(uid, "🎉 Access granted!")
-        await query.edit_message_text("Approved")
+        await ctx.bot.send_message(uid, "🎉 *Access granted! Welcome.*\n\nType /start to begin.", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Approved user `{uid}`", parse_mode="Markdown")
 
     elif data.startswith("reject_"):
         uid = data.split("_")[1]
-        await ctx.bot.send_message(uid, "❌ Payment rejected")
-        await query.edit_message_text("Rejected")
+        await ctx.bot.send_message(uid, "❌ Payment could not be verified. Please contact support.")
+        await query.edit_message_text(f"❌ Rejected user `{uid}`", parse_mode="Markdown")
+
 
 # ════════════════════════════════════════════════════════════════
-# 🚀 MAIN (FIXED FOR RENDER)
+# 🚀 STARTUP & MAIN
 # ════════════════════════════════════════════════════════════════
 
-async def post_init(app):
+async def on_startup(app: Application):
+    global alerts
     load_users()
+    alerts = load_alerts()
     await fetch_active_symbols()
 
-async def main():
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    # Restart watchers for any untriggered alerts from previous session
+    for sym in set(a["symbol"] for a in alerts.values() if not a["triggered"]):
+        if sym not in subscribed_symbols:
+            subscribed_symbols.add(sym)
+            asyncio.create_task(watch_symbol(sym, app))
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("addalert", cmd_addalert))
-    app.add_handler(CommandHandler("listalerts", cmd_listalerts))
-    app.add_handler(CommandHandler("removealert", cmd_removealert))
+    logger.info("✅ Bot ready")
+
+async def main():
+    if not TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN missing from environment!")
+
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Kill old webhook/session conflicts
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
+    app.add_handler(CommandHandler("start",        cmd_start))
+    app.add_handler(CommandHandler("addalert",     cmd_addalert))
+    app.add_handler(CommandHandler("listalerts",   cmd_listalerts))
+    app.add_handler(CommandHandler("removealert",  cmd_removealert))
+    app.add_handler(CommandHandler("symbols",      cmd_symbols))
+    app.add_handler(CommandHandler("search",       cmd_search))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    await app.run_polling()
+    await app.initialize()
+    await on_startup(app)
+    await app.updater.start_polling()
+    await app.start()
 
-# ❌ OLD BROKEN VERSION (COMMENTED FOR BACKUP)
-"""
+    logger.info("🚀 Bot is live.")
+    while True:
+        await asyncio.sleep(3600)
+
+# ── ENTRY POINT ──────────────────────────────────────────────────
 if __name__ == "__main__":
-    asyncio.run(main())
-"""
-
-# ✅ NEW FIXED ENTRY POINT
-if __name__ == "__main__":
-    main()
-
-
-
-
-
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
 
 
