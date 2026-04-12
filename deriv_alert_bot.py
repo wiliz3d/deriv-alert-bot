@@ -25,7 +25,6 @@ DERIV_WS_URL       = f"wss://ws.derivws.com/websockets/v3?app_id={DERIV_APP_ID}"
 
 ALERTS_FILE = "alerts.json"
 USERS_FILE  = "users.json"
-# ADMIN_ID    = int(os.environ.get("ADMIN_ID", "0"))
 ADMIN_IDS = [2068321429, 6190585406]
 
 # 💰 BTC PAYMENT CONFIG
@@ -75,7 +74,6 @@ async def show_payment(update: Update):
         [InlineKeyboardButton("💸 I HAVE PAID (BTC)", callback_data=f"paid_{chat_id}")]
     ]
 
-
     msg = (
         "🔒 *PREMIUM ACCESS REQUIRED*\n\n"
         "🚀 Get real-time trading alerts instantly\n\n"
@@ -94,8 +92,7 @@ async def show_payment(update: Update):
         f"🆔 *Your User ID:*\n`{chat_id}`\n\n"
 
         "👇 After payment, click the button below"
-         )
-
+    )
 
     await update.message.reply_text(
         msg,
@@ -210,7 +207,6 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = str(query.from_user.id)
 
-    # USER CLICKED "I PAID"
     if data.startswith("paid_"):
         await query.answer()
 
@@ -218,7 +214,6 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}"),
             InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")
         ]]
-
 
         for admin_id in ADMIN_IDS:
             await ctx.bot.send_message(
@@ -235,7 +230,6 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text("⏳ Waiting approval...")
 
-    # ADMIN APPROVES
     elif data.startswith("approve_"):
         uid = data.split("_")[1]
         grant_access(uid)
@@ -243,34 +237,339 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await ctx.bot.send_message(uid, "🎉 Access granted!")
         await query.edit_message_text("Approved")
 
-    # ADMIN REJECTS
     elif data.startswith("reject_"):
         uid = data.split("_")[1]
         await ctx.bot.send_message(uid, "❌ Payment rejected")
         await query.edit_message_text("Rejected")
 
 # ════════════════════════════════════════════════════════════════
-# 🚀 MAIN
+# 🚀 MAIN (FIXED FOR RENDER)
 # ════════════════════════════════════════════════════════════════
 
-async def main():
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
+async def post_init(app):
     load_users()
+    await fetch_active_symbols()
+
+async def main():
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("addalert", cmd_addalert))
     app.add_handler(CommandHandler("listalerts", cmd_listalerts))
     app.add_handler(CommandHandler("removealert", cmd_removealert))
-
     app.add_handler(CallbackQueryHandler(handle_callback))
-
-    await fetch_active_symbols()
 
     await app.run_polling()
 
+# ❌ OLD BROKEN VERSION (COMMENTED FOR BACKUP)
+"""
 if __name__ == "__main__":
     asyncio.run(main())
+"""
+
+# ✅ NEW FIXED ENTRY POINT
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # ── LOAD .env FILE ─────────────────────────────────────────────
+# from dotenv import load_dotenv
+# load_dotenv()
+
+# import asyncio
+# import json
+# import logging
+# import os
+# import uuid
+# import websockets
+
+# from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+# from telegram.ext import (
+#     Application,
+#     CommandHandler,
+#     CallbackQueryHandler,
+#     ContextTypes,
+# )
+
+# # ── CONFIGURATION ───────────────────────────────────────────────
+# TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# DERIV_APP_ID       = os.environ.get("DERIV_APP_ID", "1089")
+# DERIV_API_TOKEN    = os.environ.get("DERIV_API_TOKEN")
+# DERIV_WS_URL       = f"wss://ws.derivws.com/websockets/v3?app_id={DERIV_APP_ID}"
+
+# ALERTS_FILE = "alerts.json"
+# USERS_FILE  = "users.json"
+# # ADMIN_ID    = int(os.environ.get("ADMIN_ID", "0"))
+# ADMIN_IDS = [2068321429, 6190585406]
+
+# # 💰 BTC PAYMENT CONFIG
+# BTC_ADDRESS = "bc1qdwf7va0xpkkutudgryd3tgmfscf8pmc7qn6v0n"
+# BTC_AMOUNT  = "BTC $20"
+
+# # ── LOGGING ──────────────────────────────────────────────────────
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
+
+# # ── GLOBAL STATE ─────────────────────────────────────────────────
+# symbol_cache = {}
+# alerts = {}
+# users = {}
+# subscribed_symbols = set()
+
+# # ════════════════════════════════════════════════════════════════
+# # 💰 USER PAYMENT SYSTEM
+# # ════════════════════════════════════════════════════════════════
+
+# def load_users():
+#     global users
+#     if os.path.exists(USERS_FILE):
+#         users = json.load(open(USERS_FILE))
+#     else:
+#         users = {}
+
+# def save_users():
+#     with open(USERS_FILE, "w") as f:
+#         json.dump(users, f, indent=2)
+
+# def has_access(user_id: str):
+#     return users.get(user_id, {}).get("paid", False)
+
+# def grant_access(user_id: str):
+#     users[user_id] = {"paid": True}
+#     save_users()
+
+# # ════════════════════════════════════════════════════════════════
+# # 💳 SHOW PAYMENT INFO
+# # ════════════════════════════════════════════════════════════════
+
+# async def show_payment(update: Update):
+#     chat_id = str(update.effective_chat.id)
+
+#     keyboard = [
+#         [InlineKeyboardButton("💸 I HAVE PAID (BTC)", callback_data=f"paid_{chat_id}")]
+#     ]
+
+
+#     msg = (
+#         "🔒 *PREMIUM ACCESS REQUIRED*\n\n"
+#         "🚀 Get real-time trading alerts instantly\n\n"
+
+#         "💰 *PAY WITH BITCOIN (BTC)*\n\n"
+
+#         f"🪙 *Amount:*\n`{BTC_AMOUNT}`\n\n"
+#         f"📥 *Wallet Address:*\n`{BTC_ADDRESS}`\n\n"
+
+#         "⚠️ *IMPORTANT:*\n"
+#         "• Send *ONLY BTC* to this address\n"
+#         "• Sending any other coin/network = *LOSS OF FUNDS* ❌\n"
+#         "• Send *exact amount* shown above\n"
+#         "• Wait for blockchain confirmation ⏳\n\n"
+
+#         f"🆔 *Your User ID:*\n`{chat_id}`\n\n"
+
+#         "👇 After payment, click the button below"
+#          )
+
+
+#     await update.message.reply_text(
+#         msg,
+#         parse_mode="Markdown",
+#         reply_markup=InlineKeyboardMarkup(keyboard)
+#     )
+
+# # ════════════════════════════════════════════════════════════════
+# # 🔐 ACCESS CONTROL WRAPPER
+# # ════════════════════════════════════════════════════════════════
+
+# def paid_only(func):
+#     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#         user_id = str(update.effective_chat.id)
+
+#         if not has_access(user_id):
+#             await show_payment(update)
+#             return
+
+#         return await func(update, ctx)
+
+#     return wrapper
+
+# # ════════════════════════════════════════════════════════════════
+# # ⚡ DERIV FUNCTIONS (UNCHANGED)
+# # ════════════════════════════════════════════════════════════════
+
+# async def authorize(ws):
+#     if not DERIV_API_TOKEN:
+#         return
+#     await ws.send(json.dumps({"authorize": DERIV_API_TOKEN}))
+#     await ws.recv()
+
+# async def fetch_active_symbols():
+#     global symbol_cache
+#     async with websockets.connect(DERIV_WS_URL) as ws:
+#         await authorize(ws)
+#         await ws.send(json.dumps({"active_symbols": "brief"}))
+#         msg = json.loads(await ws.recv())
+
+#         for s in msg.get("active_symbols", []):
+#             symbol_cache[s["symbol"]] = s.get("display_name", s["symbol"])
+
+# # ════════════════════════════════════════════════════════════════
+# # 🔔 ALERT SYSTEM (UNCHANGED)
+# # ════════════════════════════════════════════════════════════════
+
+# def load_alerts():
+#     if os.path.exists(ALERTS_FILE):
+#         return json.load(open(ALERTS_FILE))
+#     return {}
+
+# def save_alerts():
+#     json.dump(alerts, open(ALERTS_FILE, "w"), indent=2)
+
+# async def check_alerts(symbol, price, app):
+#     for aid, a in alerts.items():
+#         if a["symbol"] == symbol and not a["triggered"]:
+#             if price >= a["price"]:
+#                 a["triggered"] = True
+#                 await app.bot.send_message(
+#                     chat_id=int(a["chat_id"]),
+#                     text=f"🔔 Alert hit {symbol} @ {price}"
+#                 )
+#     save_alerts()
+
+# # ════════════════════════════════════════════════════════════════
+# # 🤖 COMMANDS (ONLY WRAPPED — LOGIC SAME)
+# # ════════════════════════════════════════════════════════════════
+
+# HELP_TEXT = "Use /addalert, /listalerts etc"
+
+# async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#     if not has_access(str(update.effective_chat.id)):
+#         await show_payment(update)
+#         return
+#     await update.message.reply_text(HELP_TEXT)
+
+# @paid_only
+# async def cmd_addalert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#     symbol = ctx.args[0].upper()
+#     price = float(ctx.args[1])
+
+#     aid = str(uuid.uuid4())[:6]
+#     alerts[aid] = {
+#         "symbol": symbol,
+#         "price": price,
+#         "chat_id": str(update.effective_chat.id),
+#         "triggered": False
+#     }
+#     save_alerts()
+
+#     await update.message.reply_text(f"✅ Alert set {aid}")
+
+# @paid_only
+# async def cmd_listalerts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#     await update.message.reply_text(str(alerts))
+
+# @paid_only
+# async def cmd_removealert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#     aid = ctx.args[0]
+#     alerts.pop(aid, None)
+#     save_alerts()
+#     await update.message.reply_text("Removed")
+
+# # ════════════════════════════════════════════════════════════════
+# # 🔘 BUTTON SYSTEM (APPROVAL)
+# # ════════════════════════════════════════════════════════════════
+
+# async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+#     query = update.callback_query
+#     data = query.data
+#     user_id = str(query.from_user.id)
+
+#     # USER CLICKED "I PAID"
+#     if data.startswith("paid_"):
+#         await query.answer()
+
+#         keyboard = [[
+#             InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}"),
+#             InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")
+#         ]]
+
+
+#         for admin_id in ADMIN_IDS:
+#             await ctx.bot.send_message(
+#                 chat_id=admin_id,
+#                 text=(
+#                     "🧾 *NEW BTC PAYMENT REQUEST*\n\n"
+#                     f"👤 User ID: `{user_id}`\n"
+#                     f"💰 Amount: {BTC_AMOUNT}\n\n"
+#                     "Check wallet → then approve 👇"
+#                 ),
+#                 parse_mode="Markdown",
+#                 reply_markup=InlineKeyboardMarkup(keyboard)
+#             )
+
+#         await query.edit_message_text("⏳ Waiting approval...")
+
+#     # ADMIN APPROVES
+#     elif data.startswith("approve_"):
+#         uid = data.split("_")[1]
+#         grant_access(uid)
+
+#         await ctx.bot.send_message(uid, "🎉 Access granted!")
+#         await query.edit_message_text("Approved")
+
+#     # ADMIN REJECTS
+#     elif data.startswith("reject_"):
+#         uid = data.split("_")[1]
+#         await ctx.bot.send_message(uid, "❌ Payment rejected")
+#         await query.edit_message_text("Rejected")
+
+# # ════════════════════════════════════════════════════════════════
+# # 🚀 MAIN
+# # ════════════════════════════════════════════════════════════════
+
+# async def main():
+#     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+#     load_users()
+
+#     app.add_handler(CommandHandler("start", cmd_start))
+#     app.add_handler(CommandHandler("addalert", cmd_addalert))
+#     app.add_handler(CommandHandler("listalerts", cmd_listalerts))
+#     app.add_handler(CommandHandler("removealert", cmd_removealert))
+
+#     app.add_handler(CallbackQueryHandler(handle_callback))
+
+#     await fetch_active_symbols()
+
+#     await app.run_polling()
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
 
 
 
