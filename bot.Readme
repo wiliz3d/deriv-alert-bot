@@ -1,0 +1,228 @@
+# 🤖 Deriv Alert Bot + 💰 BTC Payment System (README)
+
+## 📌 Overview
+
+This bot is a **premium Telegram trading alert bot** that:
+
+* Tracks Deriv market prices 📊
+* Sends real-time alerts 🔔
+* Restricts access to **paying users only** 💰
+* Uses **manual BTC payment verification**
+
+---
+
+## ⚙️ How The System Works
+
+### 👤 User Flow
+
+1. User starts the bot:
+
+   ```
+   /start
+   ```
+
+2. If user has NOT paid:
+
+   * Bot shows BTC payment details
+   * User clicks **“I HAVE PAID”**
+
+3. Bot sends request to admin
+
+4. Admin approves or rejects
+
+5. If approved:
+
+   * User gets full access ✅
+   * Can now use all commands
+
+---
+
+### 👨‍💼 Admin Flow
+
+1. User clicks “I PAID”
+
+2. Bot sends message to all admins:
+
+   ```
+   New Payment Request
+   User ID: 123456789
+   ```
+
+3. Admin clicks:
+
+   * ✅ APPROVE → user unlocked
+   * ❌ REJECT → user blocked
+
+---
+
+## 🔧 Setup Guide
+
+### 1. Install Requirements
+
+```bash
+pip install python-telegram-bot websockets python-dotenv
+```
+
+---
+
+### 2. Add Your Config Inside Code
+
+Find this section in your code:
+
+```python
+BTC_ADDRESS = "bc1xxxxxxxxxxxxxxxxxxxx"
+BTC_AMOUNT = "0.00025 BTC"
+ADMIN_IDS = [123456789]
+```
+
+---
+
+### 💰 Set Your BTC Wallet
+
+Replace:
+
+```python
+BTC_ADDRESS = "bc1xxxxxxxxxxxxxxxxxxxx"
+```
+
+With your real wallet:
+
+```python
+BTC_ADDRESS = "bc1qyourrealwalletaddresshere"
+```
+
+---
+
+### 💵 Set Payment Amount
+
+```python
+BTC_AMOUNT = "0.00025 BTC"
+```
+
+You can change it anytime:
+
+```python
+BTC_AMOUNT = "0.0005 BTC"
+```
+
+---
+
+### 👨‍💼 Add Admin IDs
+
+Replace:
+
+```python
+ADMIN_IDS = [123456789]
+```
+
+With your real Telegram user IDs:
+
+```python
+ADMIN_IDS = [123456789, 987654321]
+```
+
+---
+
+## 🔍 How To Get Your Telegram User ID
+
+1. Open Telegram
+2. Search: `@userinfobot`
+3. Click **Start**
+
+You’ll see:
+
+```
+Id: 123456789
+```
+
+👉 Copy that number and use it in `ADMIN_IDS`
+
+---
+
+## 🚀 Running The Bot
+
+```bash
+python bot.py
+```
+
+You should see:
+
+```
+Bot is running...
+```
+
+---
+
+## 📂 Files Used
+
+| File              | Purpose             |
+| ----------------- | ------------------- |
+| `alerts.json`     | Stores price alerts |
+| `users.json`      | Stores paid users   |
+| `.env` (optional) | Stores tokens       |
+
+---
+
+## 🔐 Access Control System
+
+The bot uses:
+
+```python
+@paid_only
+```
+
+This means:
+
+* ❌ Unpaid users → blocked
+* ✅ Paid users → full access
+
+---
+
+## 🧠 Important Notes
+
+* Payments are **manual** (you verify BTC yourself)
+* Bot does NOT auto-check blockchain
+* Admin must approve users
+
+---
+
+## ⚠️ Common Mistakes
+
+❌ Using username instead of user ID
+❌ Using phone number
+❌ Forgetting to add your admin ID
+❌ Not replacing BTC wallet
+
+---
+
+## 🔮 Future Upgrades (Optional)
+
+You can later add:
+
+* ⏳ Subscription expiry (30 days)
+* 🔄 Auto-renewal system
+* 💳 Paystack / Flutterwave (for Naira)
+* 🤖 Auto BTC verification
+
+---
+
+## ✅ Final Summary
+
+* Bot = Trading alerts + payment gate
+* BTC = Payment method
+* Admin = Controls access
+* Users = Must pay before using
+
+---
+
+## 🎯 You’re Ready
+
+Once set up:
+
+* Users pay → click button
+* Admin approves → access granted
+* Bot runs normally
+
+---
+
+If you want upgrades later, just extend from this system 🚀
