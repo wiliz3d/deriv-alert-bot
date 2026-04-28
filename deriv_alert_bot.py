@@ -294,10 +294,27 @@ async def cmd_addalert(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: `/addalert SYMBOL PRICE`", parse_mode="Markdown")
         return
 
-    symbol = ctx.args[0].upper()
-    if symbol_cache and symbol not in symbol_cache:
-        await update.message.reply_text(f"❌ Symbol `{symbol}` not found. Use /search to find valid symbols.", parse_mode="Markdown")
+    #symbol = ctx.args[0].upper()
+    #if symbol_cache and symbol not in symbol_cache:
+    #    await update.message.reply_text(f"❌ Symbol `{symbol}` not found. Use /search to find valid symbols.", parse_mode="Markdown")
+    #    return
+    symbol = ctx.args[0].strip()
+    # normalize lookup (case-insensitive match against cache)
+    symbol_key = None
+    
+    for s in symbol_cache.keys():
+        if s.lower() == symbol.lower():
+            symbol_key = s
+            break
+        
+    if not symbol_key:
+        await update.message.reply_text(
+            f"❌ Symbol `{symbol}` not found. Use /search to find valid symbols.",
+            parse_mode="Markdown"
+        )
         return
+
+    symbol = symbol_key
 
     try:
         price = float(ctx.args[1])
