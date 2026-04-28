@@ -130,28 +130,62 @@ async def authorize(ws):
     else:
         logger.info("✅ Deriv authorized")
 
+
 async def fetch_active_symbols():
     global symbol_cache
     logger.info("Fetching symbols from Deriv...")
+
     try:
         async with websockets.connect(DERIV_WS_URL) as ws:
             await authorize(ws)
+
+            # ✅ FIX: use "full" instead of "brief"
+            # This includes FRX, Step Index, Synthetic indices, OTC pairs, etc.
             await ws.send(json.dumps({
-                "active_symbols": "brief",
-                "product_type": "basic"
+                "active_symbols": "full"
             }))
+
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
+
             if "error" in msg:
                 logger.error(f"Symbol fetch error: {msg['error']['message']}")
                 return
+
             for s in msg.get("active_symbols", []):
                 symbol_cache[s["symbol"]] = {
                     "display_name": s.get("display_name", s["symbol"]),
-                    "market":       s.get("market_display_name", "Other"),
+                    "market": s.get("market_display_name", "Other"),
+                    "type": s.get("product_type", "unknown")
                 }
+
             logger.info(f"✅ Loaded {len(symbol_cache)} symbols")
+
     except Exception as e:
         logger.error(f"fetch_active_symbols failed: {e}")
+
+
+#async def fetch_active_symbols():
+    #global symbol_cache
+    #logger.info("Fetching symbols from Deriv...")
+    #try:
+        #async with websockets.connect(DERIV_WS_URL) as ws:
+            #await authorize(ws)
+            #await ws.send(json.dumps({
+               # "active_symbols": "brief",
+               # "product_type": "basic"
+            #}))
+            #msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
+            #if "error" in msg:
+                #logger.error(f"Symbol fetch error: {msg['error']['message']}")
+                #return
+            #for s in msg.get("active_symbols", []):
+                #symbol_cache[s["symbol"]] = {
+                  #  "display_name": s.get("display_name", s["symbol"]),
+                  #  "market":       s.get("market_display_name", "Other"),
+              #  }
+            #logger.info(f"✅ Loaded {len(symbol_cache)} symbols")
+    #except Exception as e:
+        #logger.error(f"fetch_active_symbols failed: {e}")
 
 
 # ════════════════════════════════════════════════════════════════
